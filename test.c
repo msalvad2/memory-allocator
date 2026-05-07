@@ -2,8 +2,22 @@
 #include <stdint.h> // uintptr_t
 #include <assert.h> // assert(condition)
 #include <stdio.h> //printf
+#include <unistd.h> //sbrk
 
 int main(int argc, char * argv[]){
+
+    // Testing allocator reuses freed memory instead of calling Operating system
+    int * a = malloc(sizeof(int));
+
+    free(a); //free it
+    void* break_before = sbrk(0); // check address
+    int * b = malloc(sizeof(int));
+
+    void * break_after = sbrk(0);
+    free(b);
+
+    assert(break_before == break_after);
+
     int length = 10;
     int *num_array = malloc(length * sizeof(int));
 //writing to the memory
@@ -40,6 +54,15 @@ int main(int argc, char * argv[]){
         assert(num1[i] == (i +1) * 10);
         assert(num2[i] == i + 1);
     }
+
+
+    
+    free(num_array);
+    free(num);
+    free(num_2);
+    free(word);
+    free(num1);
+    free(num2);
     
     printf("All tests passed\n");
     

@@ -16,6 +16,7 @@ typedef struct header{
 void* malloc(size_t  size);
 void* realloc(void * ptr, size_t  size);
 void free(void * ptr);
+void* find_free_block (size_t requested);
 
 
 
