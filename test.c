@@ -6,21 +6,38 @@
 
 int main(int argc, char * argv[]){
 
+    void* heap_start = sbrk(0);
+    void* heap_end = sbrk(0);
     // Testing allocator reuses freed memory instead of calling Operating system
-    int * a = malloc(sizeof(int));
+    char * a = malloc( 2 * sizeof(char));
 
     free(a); //free it
     void* break_before = sbrk(0); // check address
-    int * b = malloc(sizeof(int));
+    char * b = malloc(2 * sizeof(char));
 
     void * break_after = sbrk(0);
     free(b);
 
     assert(break_before == break_after);
 
+    // testing coalescing 
+    a = malloc(2 * sizeof(char)); //reuses the memory in heap
+    b = malloc(2 * sizeof(char)); // increases program break using sbrk
+
+    heap_start = sbrk(0);
+    free(a);
+    free(b);
+    int* a_b = malloc(1 * sizeof(int));
+    heap_end = sbrk(0);
+
+    assert( heap_start == heap_end);
+    free(a_b);
+
+
     int length = 10;
     int *num_array = malloc(length * sizeof(int));
-//writing to the memory
+
+    //writing to the memory
     for (int i = 0; i < length; ++i){
         num_array[i] = i * 10;
     }
@@ -54,7 +71,6 @@ int main(int argc, char * argv[]){
         assert(num1[i] == (i +1) * 10);
         assert(num2[i] == i + 1);
     }
-
 
     
     free(num_array);
