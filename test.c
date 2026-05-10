@@ -5,12 +5,13 @@
 #include <unistd.h> //sbrk
 
 int main(int argc, char * argv[]){
+    printf("Test: \n");
 
     void* heap_start = sbrk(0);
     void* heap_end = sbrk(0);
     // Testing allocator reuses freed memory instead of calling Operating system
+    printf("---Reusability Test---\n");
     char * a = malloc( 2 * sizeof(char));
-
     free(a); //free it
     void* break_before = sbrk(0); // check address
     char * b = malloc(2 * sizeof(char));
@@ -19,17 +20,26 @@ int main(int argc, char * argv[]){
     free(b);
 
     assert(break_before == break_after);
+    //should show two blocks - 1024 (printf call) and 16 (reused block)
+    heap_dump();
 
     // testing coalescing 
+    printf("---Coalescing Test---\n");
     a = malloc(2 * sizeof(char)); //reuses the memory in heap
     b = malloc(2 * sizeof(char)); // increases program break using sbrk
 
     heap_start = sbrk(0);
     free(a);
     free(b);
+    // should show two blocks = 1024(printf) and 64(merged block)
+    heap_dump();
+
+    // splitting test
+    printf("---Splitting Test---\n");
     int* a_b = malloc(1 * sizeof(int));
     heap_end = sbrk(0);
-
+    // should show 3 blocks = 1024(printf), 16(used), 16(free)
+    heap_dump();
     assert( heap_start == heap_end);
     free(a_b);
 
