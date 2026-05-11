@@ -3,6 +3,7 @@
 #include <assert.h> // assert(condition)
 #include <stdio.h> //printf
 #include <unistd.h> //sbrk
+#include <string.h>
 
 int main(int argc, char * argv[]){
     printf("Test: \n");
@@ -42,6 +43,57 @@ int main(int argc, char * argv[]){
     heap_dump();
     assert( heap_start == heap_end);
     free(a_b);
+
+    // verifying mmap call works
+    printf("---mmap Test---\n");
+
+    
+    void * big_alloc = malloc(200*1024); //should use mmap instead of sbrk
+    //should display two block - 1024(printf) - 64(merged). mmap block exists outside of heap
+    heap_dump();
+    assert(big_alloc != NULL);
+    memset(big_alloc, 0xAB, 200*1024);
+    free(big_alloc);
+
+    // Realloc test
+    printf("---Realloc Test---\n");
+    // case 1:
+    void* pointer = NULL;
+    pointer = realloc(pointer, 5);
+    assert(pointer != NULL);
+    heap_dump();
+
+    // case 2:
+    pointer = realloc(pointer, 0);
+    assert(pointer == NULL);
+    heap_dump();
+
+    // case 3: shrinking
+    pointer = malloc(256);
+    heap_dump();
+    void* smaller_pointer = realloc(pointer, 64);
+    // Since it got smaller, you should not move addresses
+    heap_dump();
+    assert(pointer == smaller_pointer);
+    
+    // case 4: growing in place by merging next block
+    // if you merge blocks you will have just enough space 
+    void * larger_pointer = realloc(smaller_pointer, 256);
+    heap_dump();
+
+    assert(larger_pointer == smaller_pointer); //address is the same
+
+    // case 5: growing
+    // Will have to move to new block in order to allocate memory
+    void * largest = realloc(larger_pointer, 512);
+    //should have [1024 used ] [352 free] [512 used]
+    heap_dump();
+    header_t* largest_header = (header_t*)largest - 1;
+    size_t size = largest_header->size;
+    assert(size == 512);
+    free(largest);
+
+
 
 
     int length = 10;

@@ -1,6 +1,7 @@
 #include "allocator.h"
 #include <unistd.h> //sbrk
 #include <stdio.h> //perror
+#include <string.h>
 
 static void *heap_start = NULL;
 
@@ -15,6 +16,29 @@ void *malloc(size_t size) {
         heap_start = sbrk(0);
     }
     size_t aligned_size = ALIGN(size);
+
+    // Check to see if we need to use mmap
+    if (size >= MMAP_THRESHOLD){
+        // mmap doesn't need a footer because it doesn't need coalescing
+        size_t total = HEADER_SIZE + aligned_size;
+        //call mmap
+        void * map_ptr = mmap(NULL, total, PROT_READ | PROT_WRITE,
+                              MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        //check for failure
+        if (map_ptr == MAP_FAILED)
+            return NULL;
+
+        header_t* header = (header_t*) map_ptr;
+        header->size = aligned_size;
+        header->free = 0;
+        header->mmapped = 1;
+
+        return (void*) (header + 1);
+    }
+
+
+
+
     // will see if heap currently has enough memory
     header_t * header = find_free_block(aligned_size);
 
@@ -27,7 +51,7 @@ void *malloc(size_t size) {
     // means could not find memory in current heap
     if (!header){
 
-        size_t total = ALIGN(aligned_size + HEADER_SIZE + FOOTER_SIZE);
+        size_t total = aligned_size + HEADER_SIZE + FOOTER_SIZE;
         header = sbrk(total);
         // call failed
         if (header == (void*)-1){
@@ -39,26 +63,91 @@ void *malloc(size_t size) {
         // takes you to footer
         footer_t * footer = (footer_t*) ((char*)header + HEADER_SIZE + header->size);
         footer->size = total - HEADER_SIZE - FOOTER_SIZE; //gives user data size
+        header->mmapped = 0; //sbrk called used on it
 
 }
 
     header->free = 0; //used
+
     //skips header_t because user only wants access to user data
     return (void*)(header + 1);
 }
-
+// resizes a pointer
 void *realloc(void * ptr, size_t size){
-    (void)ptr;
-    (void)size;
-    return NULL;
+    // case 1
+    if (ptr == NULL){
+        return malloc(size);
+    }
+    // case 2
+    if (size == 0){
+        free(ptr);
+        return NULL;
+    }
+    size_t aligned_size = ALIGN(size);
+    header_t* header = (header_t*)ptr - 1;
+
+    // case 3: means the current block has enough available space
+    // shrinking case
+    if ( header->size >= aligned_size) {
+        // when shrinking: split_block will free up the excess
+        //memory for further use
+        split_block(header, aligned_size);
+        return ptr;
+    }
+
+    // case 4: current block doesn't have enough space but 
+    // current & next block merged have enough space
+     header_t* next_header = (header_t*) ((char*) header + HEADER_SIZE + header->size + FOOTER_SIZE);
+    // if it is memory allocated with mmap there is not next block
+    if ( !header->mmapped && (void*)next_header < sbrk(0)){
+       
+        // if next block is freee
+        if (next_header->free){
+            // If two block merge this is total memory available
+            size_t total = header->size + FOOTER_SIZE + HEADER_SIZE + next_header->size;
+            
+            // If there is enough space
+            if ( total >= aligned_size) {
+                footer_t* updated_footer = (footer_t*) ((char*) next_header + HEADER_SIZE + next_header->size);
+                header->size = total;
+                updated_footer->size = total;
+                // reclaim the remainder - after merging there may be a 
+                // large amount of unused memory
+                split_block(header, aligned_size);
+                return (void*) (header + 1);
+            }
+        }
+    }
+    // case 5: No in place block - growing
+    void* updated_ptr = malloc(size); // malloc will align the size
+    if (!updated_ptr) return NULL;
+    // When you reach this case you are always growing
+    size_t num_bytes = header->size;
+    
+
+
+    //copy data over
+    memcpy(updated_ptr, ptr, num_bytes);
+    free(ptr);
+
+    return updated_ptr;
 }
 // releases the memory so it can be reused
 void free(void * ptr){
 
     if (!ptr) return; // user passed in NULL
 
+
     // ptr points to the user data
     header_t* header = (header_t*)ptr - 1;
+
+    // check to see if pointer was allocated using mmap
+    if ( header->mmapped){
+        munmap(header, (HEADER_SIZE + header->size));
+        return;
+
+    }
+
     header->free = 1;
 
     // find next_header block & see if it is free
@@ -68,6 +157,7 @@ void free(void * ptr){
         // absorb next_header into header using header->size
         header->size = header->size + FOOTER_SIZE  + HEADER_SIZE + next_header->size;
         // update footer->size to reflect change
+        // update the end footer of the merged block
         footer_t* footer = (footer_t*) ((char*)next_header + HEADER_SIZE + next_header->size);
         footer->size = header->size; 
     }
@@ -126,11 +216,12 @@ void* split_block(header_t* ptr, size_t requested){
     footer_t* new_footer = (footer_t*) ((char*) new_header + HEADER_SIZE + new_free_bytes);
 
     header->size = requested;
-    header->free = 0;
+    
     footer->size = requested;
 
     new_header->size = new_free_bytes;
     new_header->free = 1;
+    new_header->mmapped = 0;
     new_footer->size = new_free_bytes;
 
     return header;
