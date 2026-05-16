@@ -3,11 +3,13 @@
 #define ALLOCATOR_H
 #include <stddef.h>
 #include <sys/mman.h>
+#include <valgrind/memcheck.h> // lets valgrind track custom memory events 
 
 #define ALIGNMENT 16
 #define ALIGN(size) (((size) + (ALIGNMENT - 1)) & ~(ALIGNMENT - 1))
 #define HEADER_SIZE (sizeof(header_t)) // 
 #define FOOTER_SIZE (sizeof(footer_t))
+
 
 // block must have atleast 16 bytes in order to split
 #define MIN_BLOCK_SIZE (HEADER_SIZE + FOOTER_SIZE + 16)
@@ -27,10 +29,11 @@ typedef struct header{
     int mmapped; // 1 = mmap call, 0 = sbrk call
 } header_t, footer_t; // footer_t mirrors header_t layout - only size field is used for footer
 
-
+void heap_reset();
 void* malloc(size_t  size);
 void* realloc(void * ptr, size_t size);
 void free(void * ptr);
+void coalesce(header_t* header);
 void* find_free_block (size_t requested);
 void* split_block(header_t* ptr, size_t requested);
 void heap_dump();

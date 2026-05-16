@@ -2,20 +2,38 @@
 #include <unistd.h> //sbrk
 #include <stdio.h> //perror
 #include <string.h>
+#include <stdlib.h>
+#include <stdint.h> // SIZE_MAX
 
 static void *heap_start = NULL;
 
-
-void *malloc(size_t size) {
+void heap_reset(){
+    // nothing to reset
+    if (heap_start == NULL) return;
+    // calls brk and checks for failure
+    if (brk(heap_start) == -1) {
+        perror("brk");
+        exit(1);
+    }
+    heap_start = NULL; // re-initializes heap
+}
+void* malloc(size_t size) {
     //nothing to allocate
     if (size == 0){
         return NULL;
     }
+    //overflow guard -size_t is unsigned — addition can only increase it.
+    // if overflow happens, result will wrap around and start at 0
+    size_t aligned_size = ALIGN(size);
+    if ( aligned_size < size) return NULL;
+
+    size_t total = aligned_size + HEADER_SIZE + FOOTER_SIZE;
+    if (total < aligned_size) return NULL;
+
     // set heap_start once per program lifetime
     if (!heap_start) {
         heap_start = sbrk(0);
     }
-    size_t aligned_size = ALIGN(size);
 
     // Check to see if we need to use mmap
     if (size >= MMAP_THRESHOLD){
@@ -32,8 +50,10 @@ void *malloc(size_t size) {
         header->size = aligned_size;
         header->free = 0;
         header->mmapped = 1;
+        void *ptr = (void*)(header + 1);
 
-        return (void*) (header + 1);
+        VALGRIND_MALLOCLIKE_BLOCK(ptr, size, 0, 0);
+        return ptr;
     }
 
 
@@ -68,9 +88,12 @@ void *malloc(size_t size) {
 }
 
     header->free = 0; //used
-
     //skips header_t because user only wants access to user data
-    return (void*)(header + 1);
+    void * ptr = (void*)(header + 1);
+    // tells valgrind this block was just allocated
+    VALGRIND_MALLOCLIKE_BLOCK(ptr, size, 0,0);
+
+    return ptr;
 }
 // resizes a pointer
 void *realloc(void * ptr, size_t size){
@@ -92,6 +115,10 @@ void *realloc(void * ptr, size_t size){
         // when shrinking: split_block will free up the excess
         //memory for further use
         split_block(header, aligned_size);
+        // pass in the expected free memory - coalesce will check if there is 
+        // enough free memory to merge
+        header_t* next_header = (header_t*) ((char*)header + HEADER_SIZE + header->size + FOOTER_SIZE);
+        coalesce(next_header);
         return ptr;
     }
 
@@ -114,6 +141,10 @@ void *realloc(void * ptr, size_t size){
                 // reclaim the remainder - after merging there may be a 
                 // large amount of unused memory
                 split_block(header, aligned_size);
+                // pass in the expected free memory - coalesce will check if there is 
+                // enough free memory to merge
+                next_header = (header_t*) ((char*)header + HEADER_SIZE + header->size + FOOTER_SIZE);
+                coalesce(next_header);
                 return (void*) (header + 1);
             }
         }
@@ -134,8 +165,10 @@ void *realloc(void * ptr, size_t size){
 }
 // releases the memory so it can be reused
 void free(void * ptr){
-
     if (!ptr) return; // user passed in NULL
+    // tells valgrind we freed the pointer since we don't use
+    // free - we use system calls directly
+    VALGRIND_FREELIKE_BLOCK(ptr,0);
 
 
     // ptr points to the user data
@@ -149,6 +182,10 @@ void free(void * ptr){
     }
 
     header->free = 1;
+    coalesce(header);
+}
+// Will merge adjacent blocks if free
+void coalesce(header_t* header){
 
     // find next_header block & see if it is free
     header_t* next_header = (header_t*) ((char*) header + HEADER_SIZE + header->size + FOOTER_SIZE);
@@ -174,8 +211,8 @@ void free(void * ptr){
     footer->size = prev_header->size;
     }
     }
-
 }
+
 // finds the next available block of memory
 void* find_free_block (size_t requested){
     
