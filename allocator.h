@@ -4,6 +4,7 @@
 #include <stddef.h>
 #include <sys/mman.h>
 #include <valgrind/memcheck.h> // lets valgrind track custom memory events 
+#include <stdlib.h> // srand(seed), rand()
 
 #define ALIGNMENT 16
 #define ALIGN(size) (((size) + (ALIGNMENT - 1)) & ~(ALIGNMENT - 1))
@@ -28,6 +29,12 @@ typedef struct header{
     int free; // 1 = free, 0 = used
     int mmapped; // 1 = mmap call, 0 = sbrk call
 } header_t, footer_t; // footer_t mirrors header_t layout - only size field is used for footer
+
+// stress test
+typedef struct slot{
+    char* ptr;
+    int size;
+}slot_t;
 
 void heap_reset();
 void* malloc(size_t  size);

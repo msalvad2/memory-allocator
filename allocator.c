@@ -189,6 +189,7 @@ void coalesce(header_t* header){
 
     // find next_header block & see if it is free
     header_t* next_header = (header_t*) ((char*) header + HEADER_SIZE + header->size + FOOTER_SIZE);
+    VALGRIND_MAKE_MEM_DEFINED(next_header, sizeof(header_t));
     // if next_header block exists and is free
     if ((void*)next_header < sbrk(0) && next_header->free == 1){
         // absorb next_header into header using header->size
@@ -202,6 +203,7 @@ void coalesce(header_t* header){
     if ((void*) header > heap_start){
     // find the prev_header block & see if it is free
     footer_t* prev_footer = (footer_t*) ((char*) header - FOOTER_SIZE);
+    VALGRIND_MAKE_MEM_DEFINED(prev_footer, sizeof(footer_t));
     
     header_t * prev_header = (header_t*) ((char*) header - FOOTER_SIZE - prev_footer->size - HEADER_SIZE);
     if (prev_header->free == 1){
@@ -222,6 +224,9 @@ void* find_free_block (size_t requested){
 
     //traversin the heap, sbrk(0) -returns the program break
     while ((void*)current < sbrk(0)){
+        // tells valgrind you are about to read the header so it doesn't flag it
+        // if the memory is free and you read from it valgrind flags it
+        VALGRIND_MAKE_MEM_DEFINED(current, sizeof(header_t));
         // if memory is free
         if (current-> free == 1){
             // if there is enough memory
@@ -253,12 +258,14 @@ void* split_block(header_t* ptr, size_t requested){
     footer_t* new_footer = (footer_t*) ((char*) new_header + HEADER_SIZE + new_free_bytes);
 
     header->size = requested;
-    
+    VALGRIND_MAKE_MEM_DEFINED(footer, sizeof(footer_t));
     footer->size = requested;
 
+    VALGRIND_MAKE_MEM_DEFINED(new_header, sizeof(header_t));
     new_header->size = new_free_bytes;
     new_header->free = 1;
     new_header->mmapped = 0;
+    VALGRIND_MAKE_MEM_DEFINED(new_footer, sizeof(footer_t));
     new_footer->size = new_free_bytes;
 
     return header;
